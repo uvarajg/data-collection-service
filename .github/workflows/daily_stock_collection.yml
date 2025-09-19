@@ -1,0 +1,152 @@
+name: Daily Stock Data Collection
+
+on:
+  schedule:
+    # Run daily at 8 PM EST (1 AM UTC next day)
+    - cron: '0 1 * * *'
+  workflow_dispatch:  # Allow manual trigger
+    inputs:
+      debug_enabled:
+        type: boolean
+        description: 'Run workflow with debug logging'
+        required: false
+        default: false
+
+jobs:
+  collect-stock-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hours max
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests yfinance pandas
+
+    - name: Create data directory
+      run: mkdir -p data/input_source
+
+    - name: Run stock data collection
+      id: collect_data
+      run: |
+        python collect_us_market_stocks.py
+      env:
+        PYTHONUNBUFFERED: "1"
+
+    - name: Check collection results
+      id: check_results
+      run: |
+        # Check if enriched file was created
+        if ls data/input_source/enriched_yfinance_*.json 1> /dev/null 2>&1; then
+          echo "✅ Data collection successful"
+
+          # Get file stats
+          LATEST_FILE=$(ls -t data/input_source/enriched_yfinance_*.json | head -1)
+          STOCK_COUNT=$(python -c "import json; data=json.load(open('$LATEST_FILE')); print(len(data))")
+          FILE_SIZE=$(du -h "$LATEST_FILE" | cut -f1)
+
+          echo "📊 Collected $STOCK_COUNT stocks"
+          echo "💾 File size: $FILE_SIZE"
+
+          # Check if summary file was created (timestamped)
+          if ls data/input_source/input_source_data_job_summary_*.json 1> /dev/null 2>&1; then
+            LATEST_SUMMARY=$(ls -t data/input_source/input_source_data_job_summary_*.json | head -1)
+            echo "✅ Job summary created: $(basename $LATEST_SUMMARY)"
+          fi
+
+          # Set outputs for email
+          echo "stock_count=$STOCK_COUNT" >> $GITHUB_OUTPUT
+          echo "file_size=$FILE_SIZE" >> $GITHUB_OUTPUT
+          echo "file_name=$(basename $LATEST_FILE)" >> $GITHUB_OUTPUT
+          echo "collection_status=success" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Data collection failed - no output file found"
+          echo "collection_status=failed" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+    - name: Upload data artifacts
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: stock-data-${{ github.run_id }}
+        path: data/input_source/
+        retention-days: 7
+
+    - name: Send success email notification
+      if: steps.check_results.outputs.collection_status == 'success'
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        secure: true
+        username: ${{ secrets.EMAIL_USER }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: ✅ Daily Stock Data Collection Successful - ${{ steps.check_results.outputs.stock_count }} stocks
+        to: ${{ secrets.EMAIL_TO }}
+        from: ${{ secrets.EMAIL_FROM }}
+        body: |
+          Daily US Market Stock Data Collection completed successfully!
+
+          📊 Collection Summary:
+          - Total Stocks Collected: ${{ steps.check_results.outputs.stock_count }}
+          - File Size: ${{ steps.check_results.outputs.file_size }}
+          - File Name: ${{ steps.check_results.outputs.file_name }}
+          - Run ID: ${{ github.run_id }}
+          - Timestamp: ${{ github.event.head_commit.timestamp }}
+
+          Data Source:
+          - AMEX: https://github.com/rreichel3/US-Stock-Symbols/blob/main/amex/amex_full_tickers.json
+          - NASDAQ: https://github.com/rreichel3/US-Stock-Symbols/blob/main/nasdaq/nasdaq_full_tickers.json
+          - NYSE: https://github.com/rreichel3/US-Stock-Symbols/blob/main/nyse/nyse_full_tickers.json
+
+          The data has been successfully collected and is ready for processing by the Data Collection Service.
+
+          View workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    - name: Send failure email notification
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 587
+        secure: true
+        username: ${{ secrets.EMAIL_USER }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: ❌ Daily Stock Data Collection Failed
+        to: ${{ secrets.EMAIL_TO }}
+        from: ${{ secrets.EMAIL_FROM }}
+        body: |
+          Daily US Market Stock Data Collection failed!
+
+          Error Details:
+          - Run ID: ${{ github.run_id }}
+          - Timestamp: ${{ github.event.head_commit.timestamp }}
+          - Status: ${{ job.status }}
+
+          Please check the workflow logs for more details:
+          https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          The Data Collection Service may not have updated stock data today.
+
+    - name: Compress old data files
+      if: success()
+      run: |
+        python compress_old_files.py
+        echo "🧹 Compressed and cleaned up old data files"
