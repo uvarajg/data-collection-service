@@ -13,22 +13,23 @@ import os
 # Add project root to path
 sys.path.append('/workspaces/data-collection-service')
 
-from src.services.data_coordinator import DataCollectionCoordinator
+from src.services.data_collector import DataCollectionCoordinator
 
-async def run_collection():
-    """Run data collection with interactive date input"""
+async def run_collection(date_input=None):
+    """Run data collection with date input (interactive or command line)"""
 
     print("\n" + "="*60)
     print("📊 DATA COLLECTION SERVICE - INTERACTIVE RUNNER")
     print("="*60)
 
-    # Get date input
-    print("\n📅 Date Input Options:")
-    print("   • Single date: Enter one date (e.g., '2025-09-16')")
-    print("   • Date range: Enter two dates (e.g., '2025-09-01 2025-09-16')")
-    print("   • Format: YYYY-MM-DD\n")
+    # Get date input from parameter or interactive prompt
+    if date_input is None:
+        print("\n📅 Date Input Options:")
+        print("   • Single date: Enter one date (e.g., '2025-09-16')")
+        print("   • Date range: Enter two dates (e.g., '2025-09-01 2025-09-16')")
+        print("   • Format: YYYY-MM-DD\n")
 
-    date_input = input("Enter date(s) for collection: ").strip()
+        date_input = input("Enter date(s) for collection: ").strip()
 
     if not date_input:
         print("❌ No date provided. Exiting...")
@@ -253,8 +254,14 @@ def main():
         print("⚠️  Warning: Enriched data is >24 hours old")
         print("   Consider running: python collect_us_market_stocks.py")
 
+    # Check for command line arguments
+    date_input = None
+    if len(sys.argv) >= 3 and sys.argv[1] == '--date':
+        date_input = sys.argv[2]
+        print(f"📅 Command line date provided: {date_input}")
+
     # Run async collection
-    asyncio.run(run_collection())
+    asyncio.run(run_collection(date_input))
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ echo "Log file: $LOG_FILE"
 echo "========================================="
 
 # Run the pipeline with output to both console and log file
-python daily_pipeline_automation.py 2>&1 | tee "$LOG_FILE"
+python scripts/main/daily_pipeline_automation.py 2>&1 | tee "$LOG_FILE"
 
 # Capture exit code
 EXIT_CODE=${PIPESTATUS[0]}

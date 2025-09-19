@@ -87,12 +87,12 @@ class DailyPipelineRunner:
             original_cwd = os.getcwd()
             os.chdir('/workspaces/data-collection-service')
 
-            print("🔄 Running: python collect_us_market_stocks.py")
+            print("🔄 Running: python scripts/main/collect_us_market_stocks.py")
             start_time = time.time()
 
             # Run the input data refresh
             result = subprocess.run([
-                'python', 'collect_us_market_stocks.py'
+                'python', 'scripts/main/collect_us_market_stocks.py'
             ], capture_output=True, text=True, timeout=600)  # 10 minute timeout
 
             duration = time.time() - start_time
@@ -219,7 +219,7 @@ class DailyPipelineRunner:
 
             # Run the automated collection script
             result = subprocess.run([
-                'python', 'run_data_collection_automated.py', self.target_date
+                'python', 'scripts/main/run_data_collection_with_dates.py', '--date', self.target_date
             ], capture_output=True, text=True, timeout=3600)  # 60 minute timeout
 
             duration = time.time() - start_time
