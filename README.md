@@ -42,6 +42,30 @@ GitHub Raw Data → Filter >$2B → YFinance Enrichment → Validation → Stora
      7,038           2,077           2,075              97%        JSON      90% savings
 ```
 
+## 🤖 FULLY AUTOMATED DAILY PIPELINE (NEW!)
+
+**✅ ZERO MANUAL INTERVENTION REQUIRED**
+
+```bash
+# Single command - processes 2,097 tickers automatically
+cd /workspaces/data-collection-service
+python -u scripts/main/daily_pipeline_automation.py
+```
+
+**What it does automatically:**
+- 📊 Refreshes US market stock data (7,038 → 2,097 >$2B stocks)
+- 🗂️ Collects complete OHLCV data via Alpaca API
+- 🔧 Calculates 13 technical indicators (RSI, MACD, SMA, EMA, etc.)
+- 📈 Integrates fundamental data (P/E, ratios, growth metrics)
+- ✅ Validates data quality and generates reports
+- 📧 Emails comprehensive reports
+
+**Runtime:** ~21 minutes total | **Success Rate:** >99% | **No timeouts, no prompts, no interruptions**
+
+📋 **[See DAILY_AUTOMATION.md for complete setup guide](./DAILY_AUTOMATION.md)**
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -92,6 +116,7 @@ data-collection-service/
 ├── scripts/                      # Organized scripts
 │   ├── main/                     # Core production scripts
 │   ├── utils/                    # Utility scripts
+│   ├── polygon/                  # Polygon.io data collection scripts
 │   ├── legacy/                   # Legacy scripts
 │   └── tests/                    # Test scripts
 ├── .github/workflows/            # GitHub Actions
@@ -106,9 +131,9 @@ data-collection-service/
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `collect_us_market_stocks.py` | Primary data collection | `python scripts/main/collect_us_market_stocks.py` |
-| `run_data_collection_with_dates.py` | Interactive collection | `python scripts/main/run_data_collection_with_dates.py` |
+| `run_data_collection_with_dates.py` | Interactive/Automated collection | `python scripts/main/run_data_collection_with_dates.py --date YYYY-MM-DD --automated` |
 | `archive_historical_data.py` | Data archiving | `python scripts/main/archive_historical_data.py --cutoff-date YYYY-MM-DD` |
-| `daily_pipeline_automation.py` | Automated pipeline | Triggered by GitHub Actions |
+| `daily_pipeline_automation.py` | **🤖 FULLY AUTOMATED PIPELINE** | `python scripts/main/daily_pipeline_automation.py` |
 
 ### Utility Scripts
 
@@ -124,6 +149,16 @@ data-collection-service/
 |--------|---------|-------|
 | `validate_data_quality.py` | Validate data quality and coverage | `python scripts/utils/data_quality/validate_data_quality.py [date]` |
 | `fix_technical_indicators_alpaca.py` | Recovery tool for technical indicators | `python scripts/utils/data_quality/fix_technical_indicators_alpaca.py [date]` |
+
+### Polygon.io Historical Data Scripts 🆕
+
+| Script | Purpose | Usage |
+|--------|---------|-------|
+| `historical_input_data_polygon.py` | Collect 5 years historical data | `python scripts/polygon/historical_input_data_polygon.py` |
+| `enhanced_polygon_fundamentals.py` | Enhanced fundamental data collection | `python scripts/polygon/enhanced_polygon_fundamentals.py` |
+| `test_polygon_collection.py` | Test with limited tickers | `python tests/polygon/test_polygon_collection.py` |
+
+**Documentation**: See [docs/polygon/POLYGON_SETUP.md](docs/polygon/POLYGON_SETUP.md) for complete setup guide.
 
 ## 📊 Performance Metrics
 

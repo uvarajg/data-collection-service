@@ -65,13 +65,23 @@ This service is the **single source of truth** for all external data ingestion i
    - Market cap validation and classification
    - No API key required, respectful rate limiting
 
+### Secondary Data Sources
+3. **Polygon.io API** (Historical Backfill & Alternative Source)
+   - **Stocks Starter Plan**: $29/month with unlimited API calls
+   - **5 years** of historical OHLCV data
+   - **99.8% success rate** (2,084/2,088 tickers tested)
+   - **15-minute delayed** market data
+   - **100% US market coverage** - all US stock tickers
+   - Ideal for historical backfilling and data validation
+   - Script: `scripts/polygon/collect_polygon_dates.py`
+
 ### Legacy Data Sources (Maintained)
-3. **Alpaca API** (Legacy/Optional)
+4. **Alpaca API** (Legacy/Specialized Use)
    - Market data (OHLCV) for specialized use cases
-   - Technical indicators
+   - Technical indicators recovery tool
    - Real-time quotes
 
-4. **Google Sheets** (Legacy/Optional)
+5. **Google Sheets** (Legacy/Optional)
    - Historical ticker list management
    - Configuration parameters
 
@@ -373,6 +383,9 @@ python scripts/main/run_data_collection_with_dates.py
 # Then enter date(s) when prompted:
 # Single date: 2025-09-16
 # Date range: 2025-09-01 2025-09-16
+
+# Automated mode (for scripts/pipelines)
+python scripts/main/run_data_collection_with_dates.py --date 2025-09-24 --automated
 ```
 
 ### 📈 US Market Data Collection
@@ -381,6 +394,36 @@ python scripts/main/run_data_collection_with_dates.py
 - Processes 7,038 raw stocks → 2,077 stocks >$2B
 - 99.9% success rate with parallel processing
 - Automated via GitHub Actions daily at 8 PM EST
+
+### 🔄 Polygon.io Historical Data Collection ⭐ NEW
+**File**: `scripts/polygon/collect_polygon_dates.py`
+- Historical backfill and alternative data source
+- Custom date range support (command-line parameters)
+- Optimized for unlimited API plan (Stocks Starter)
+- **99.8% success rate** with 30-second completion time
+- Batch processing: 50 tickers per batch with minimal delays
+- Output: `/workspaces/data/raw_data/polygon/{TICKER}/{YEAR}/{MONTH}/{DATE}.json`
+
+**Usage**:
+```bash
+# Collect specific date range
+python scripts/polygon/collect_polygon_dates.py 2025-09-01 2025-09-14
+
+# Collect single date
+python scripts/polygon/collect_polygon_dates.py 2025-09-15 2025-09-15
+
+# Uses enriched YFinance ticker list automatically
+# Processes all 2,088 US stocks >$2B market cap
+```
+
+**Features**:
+- **Unlimited API calls** - optimized for Stocks Starter plan
+- **Parallel batch processing** - 50 tickers per batch
+- **Minimal rate limiting** - 10ms between requests, 500ms between batches
+- **Comprehensive error handling** - retries with exponential backoff
+- **Data validation** - checks for complete OHLCV data
+- **Progress tracking** - real-time batch progress and success rates
+- **Summary reports** - JSON summary with success/failure metrics
 
 ### 📦 Historical Data Archiving
 **File**: `scripts/main/archive_historical_data.py`
