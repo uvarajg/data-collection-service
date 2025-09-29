@@ -54,7 +54,7 @@ class PolygonConfig:
     """Configuration for Polygon.io API"""
     api_key: str
     base_url: str = "https://api.polygon.io"
-    rate_limit: int = 5  # requests per minute for Starter plan
+    rate_limit: int = 1000  # requests per minute for Starter plan (unlimited)
     timeout: int = 30
     max_retries: int = 3
     retry_delay: int = 60  # seconds
@@ -98,6 +98,12 @@ class StockDataPoint:
     profit_margin_percent: Optional[float] = None
     dividend_yield_percent: Optional[float] = None
     book_value: Optional[float] = None
+
+    # Company classification data
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    primary_exchange: Optional[str] = None
+    cik: Optional[str] = None
 
     # Metadata
     collection_timestamp: str = ""
@@ -330,22 +336,9 @@ class PolygonDataCollector:
         self.error_path.mkdir(parents=True, exist_ok=True)
 
     async def _rate_limit(self):
-        """Simple rate limiter implementation"""
-        now = time.time()
-        # Remove timestamps older than rate_limit_period
-        self.request_times = [t for t in self.request_times if now - t < self.rate_limit_period]
-
-        # If we've hit the limit, wait
-        if len(self.request_times) >= self.max_requests_per_period:
-            sleep_time = self.rate_limit_period - (now - self.request_times[0]) + 1
-            if sleep_time > 0:
-                self.logger.info(f"Rate limit reached, sleeping for {sleep_time:.1f} seconds")
-                await asyncio.sleep(sleep_time)
-                # Clean up old timestamps after sleeping
-                now = time.time()
-                self.request_times = [t for t in self.request_times if now - t < self.rate_limit_period]
-
-        # Record this request
+        """Minimal rate limiter for unlimited plan"""
+        # For unlimited plan, just add tiny delay to avoid overwhelming API
+        await asyncio.sleep(0.01)  # 10ms delay
         self.request_times.append(time.time())
 
     async def __aenter__(self):
@@ -360,7 +353,7 @@ class PolygonDataCollector:
         if self.session:
             await self.session.close()
 
-    async def collect_historical_data(self, ticker: str, years: int = 5, min_market_cap: float = 2_000_000_000) -> bool:
+    async def collect_historical_data(self, ticker: str, years: int = 5, min_market_cap: float = 2_000_000_000, start_date: str = None, end_date: str = None) -> bool:
         """
         Collect 5 years of historical data for a specific ticker.
         Only stores data if market cap > $2B.
@@ -390,19 +383,33 @@ class PolygonDataCollector:
 
             if market_cap < min_market_cap:
                 self.logger.info(f"❌ Skipping {ticker}: Market cap ${market_cap:,.0f} < ${min_market_cap:,.0f} threshold")
-                await self._log_error(ticker, "market_cap_filter", f"Market cap ${market_cap:,.0f} below ${min_market_cap:,.0f} threshold")
-                return False
+                # Return special status for filtered tickers (not an error)
+                return "filtered"
 
             self.logger.info(f"✅ {ticker} passes market cap filter: ${market_cap:,.0f} > ${min_market_cap:,.0f}")
 
-            # Calculate date range
-            end_date = datetime.now().date()
-            start_date = end_date - timedelta(days=years * 365)
+            # Get additional market data (sector, industry, etc.)
+            market_data = await self._get_market_data(ticker)
 
-            self.logger.info(f"Collecting {years} years of data for {ticker}: {start_date} to {end_date}")
+            # Calculate date range
+            if start_date is None or end_date is None:
+                end_date_obj = datetime.now().date()
+                start_date_obj = end_date_obj - timedelta(days=years * 365)
+                target_start = start_date_obj
+                target_end = end_date_obj
+            else:
+                target_start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                target_end = datetime.strptime(end_date, '%Y-%m-%d').date()
+                # For technical indicators, fetch additional historical data
+                # SMA_200 needs 200 trading days = ~280 calendar days (accounting for weekends/holidays)
+                start_date_obj = target_start - timedelta(days=300)
+                end_date_obj = target_end
+
+            self.logger.info(f"Collecting data for {ticker}: {start_date_obj} to {end_date_obj} (target range: {target_start} to {target_end})")
 
             # NOW collect OHLCV data (only if market cap passes)
-            ohlcv_data = await self._get_ohlcv_data(ticker, start_date, end_date)
+            # Fetch extended range for technical indicator calculations
+            ohlcv_data = await self._get_ohlcv_data(ticker, start_date_obj, end_date_obj)
             if not ohlcv_data:
                 await self._log_error(ticker, "ohlcv_collection", "No OHLCV data received")
                 return False
@@ -464,15 +471,34 @@ class PolygonDataCollector:
                         if revenues and revenues != 0:
                             record.operating_margin_percent = (financials_data['operatingIncome'] / revenues) * 100
 
+                    # Revenue Growth Percentage (calculated from year-over-year comparison)
+                    if 'revenue_growth_percent' in financials_data:
+                        record.revenue_growth_percent = financials_data['revenue_growth_percent']
+
+                # Add company classification data from market_data
+                if market_data:
+                    record.sector = market_data.get('sector')
+                    record.industry = market_data.get('industry')
+                    record.primary_exchange = market_data.get('primary_exchange')
+                    record.cik = market_data.get('cik')
+
                 records.append(record)
 
-            # Calculate technical indicators for all records
-            records = self.technical_calculator.calculate_indicators(records)
+            # Calculate technical indicators for all records (using extended data)
+            records_with_indicators = self.technical_calculator.calculate_indicators(records)
 
-            # Store data
-            await self._store_data(ticker, records)
+            # Filter to only save records in target date range
+            if start_date is not None and end_date is not None:
+                target_records = [r for r in records_with_indicators
+                                 if target_start <= datetime.strptime(r.date, '%Y-%m-%d').date() <= target_end]
+                self.logger.info(f"Filtered {len(records_with_indicators)} records to {len(target_records)} in target range {target_start} to {target_end}")
+            else:
+                target_records = records_with_indicators
 
-            self.logger.info(f"Successfully collected {len(records)} records for {ticker}")
+            # Store data (only target range)
+            await self._store_data(ticker, target_records)
+
+            self.logger.info(f"Successfully collected {len(target_records)} records for {ticker}")
             return True
 
         except Exception as e:
@@ -535,7 +561,7 @@ class PolygonDataCollector:
         url = f"{self.config.base_url}/v2/reference/financials/{ticker}"
         params = {
             'apikey': self.config.api_key,
-            'limit': 4,
+            'limit': 4,  # Get last 4 periods to calculate revenue growth
             'type': 'Y'  # Annual data
         }
 
@@ -549,6 +575,17 @@ class PolygonDataCollector:
                         if results:
                             # Get the most recent financial data
                             latest = results[0]
+
+                            # Calculate revenue growth if we have at least 2 periods
+                            if len(results) >= 2:
+                                current_revenue = self._extract_revenue(latest)
+                                previous_revenue = self._extract_revenue(results[1])
+
+                                if current_revenue and previous_revenue and previous_revenue != 0:
+                                    revenue_growth = ((current_revenue - previous_revenue) / previous_revenue) * 100
+                                    latest['revenue_growth_percent'] = revenue_growth
+                                    self.logger.debug(f"Calculated revenue growth for {ticker}: {revenue_growth:.2f}%")
+
                             self.logger.debug(f"Retrieved financial data for {ticker} (period: {latest.get('reportPeriod', 'Unknown')})")
                             return latest
                 else:
@@ -557,6 +594,16 @@ class PolygonDataCollector:
             self.logger.warning(f"Could not get financial data for {ticker}: {e}")
 
         return {}
+
+    def _extract_revenue(self, financial_data: Dict) -> Optional[float]:
+        """Extract revenue from financial data structure"""
+        try:
+            # Polygon v2 financials API has flat structure - revenues at root level
+            if 'revenues' in financial_data:
+                return float(financial_data['revenues'])
+        except (KeyError, TypeError, ValueError) as e:
+            self.logger.debug(f"Could not extract revenue: {e}")
+        return None
 
     async def _get_market_data(self, ticker: str) -> Dict[str, Any]:
         """Get additional market data for fundamental calculations"""
@@ -577,7 +624,14 @@ class PolygonDataCollector:
                             'weighted_shares_outstanding': result.get('weighted_shares_outstanding'),
                             'description': result.get('description'),
                             'homepage_url': result.get('homepage_url'),
-                            'total_employees': result.get('total_employees')
+                            'total_employees': result.get('total_employees'),
+                            'sector': result.get('sic_description'),  # Standard Industrial Classification
+                            'industry': result.get('type'),  # Security type/industry
+                            'cik': result.get('cik'),  # Central Index Key for SEC filings
+                            'composite_figi': result.get('composite_figi'),  # Financial Instrument Global Identifier
+                            'share_class_figi': result.get('share_class_figi'),
+                            'currency_name': result.get('currency_name'),
+                            'primary_exchange': result.get('primary_exchange')
                         }
         except Exception as e:
             self.logger.warning(f"Could not get market data for {ticker}: {e}")
@@ -636,6 +690,12 @@ class PolygonDataCollector:
                     "profit_margin_percent": record.profit_margin_percent,
                     "dividend_yield_percent": record.dividend_yield_percent,
                     "book_value": record.book_value
+                },
+                "company_data": {
+                    "sector": record.sector,
+                    "industry": record.industry,
+                    "primary_exchange": record.primary_exchange,
+                    "cik": record.cik
                 },
                 "metadata": {
                     "collection_timestamp": record.collection_timestamp,
@@ -725,8 +785,13 @@ async def get_all_us_stocks(api_key: str) -> List[str]:
     logger.info(f"Retrieved {len(tickers)} US stock tickers")
     return tickers
 
-async def main():
-    """Main execution function"""
+async def main(start_date: str = None, end_date: str = None):
+    """Main execution function
+
+    Args:
+        start_date: Start date in YYYY-MM-DD format (optional)
+        end_date: End date in YYYY-MM-DD format (optional)
+    """
 
     # Configuration
     api_key = os.getenv('POLYGON_API_KEY')
@@ -736,9 +801,20 @@ async def main():
 
     config = PolygonConfig(api_key=api_key)
 
-    # Get list of all US stocks
-    logger.info("Retrieving list of all US stocks...")
-    tickers = await get_all_us_stocks(api_key)
+    # Use enriched YFinance ticker list instead of fetching from Polygon
+    logger.info("Loading tickers from enriched YFinance data...")
+    enriched_file = Path("/workspaces/data/input_source")
+    enriched_files = sorted(enriched_file.glob("enriched_yfinance_*.json"), reverse=True)
+
+    if not enriched_files:
+        logger.error("No enriched YFinance data found. Run collect_us_market_stocks.py first.")
+        sys.exit(1)
+
+    with open(enriched_files[0]) as f:
+        enriched_data = json.load(f)
+
+    tickers = [stock['ticker'] for stock in enriched_data]
+    logger.info(f"Loaded {len(tickers)} tickers from enriched data")
 
     if not tickers:
         logger.error("No tickers retrieved. Exiting.")
@@ -750,37 +826,43 @@ async def main():
     async with PolygonDataCollector(config) as collector:
         successful = 0
         failed = 0
+        filtered = 0
+        filtered_tickers = []
 
         # Process tickers in batches to avoid overwhelming the API
-        batch_size = 10
+        batch_size = 50  # Increased for unlimited API plan
         for i in range(0, len(tickers), batch_size):
             batch = tickers[i:i + batch_size]
 
             logger.info(f"Processing batch {i//batch_size + 1}/{(len(tickers) + batch_size - 1)//batch_size}")
 
             # Process batch concurrently
-            tasks = [collector.collect_historical_data(ticker) for ticker in batch]
+            tasks = [collector.collect_historical_data(ticker, start_date=start_date, end_date=end_date) for ticker in batch]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # Count results
-            for result in results:
+            for idx, result in enumerate(results):
+                ticker = batch[idx]
                 if isinstance(result, Exception):
                     failed += 1
                     logger.error(f"Batch processing exception: {result}")
+                elif result == "filtered":
+                    filtered += 1
+                    filtered_tickers.append(ticker)
                 elif result:
                     successful += 1
                 else:
                     failed += 1
 
             # Brief pause between batches
-            await asyncio.sleep(15)
+            await asyncio.sleep(0.5)  # Minimal delay for unlimited plan
 
             # Progress report
-            total_processed = successful + failed
-            logger.info(f"Progress: {total_processed}/{len(tickers)} ({successful} successful, {failed} failed)")
+            total_processed = successful + failed + filtered
+            logger.info(f"Progress: {total_processed}/{len(tickers)} ({successful} successful, {failed} failed, {filtered} filtered)")
 
     # Final summary
-    logger.info(f"Collection completed: {successful} successful, {failed} failed out of {len(tickers)} tickers")
+    logger.info(f"Collection completed: {successful} successful, {failed} failed, {filtered} filtered out of {len(tickers)} tickers")
 
     # Generate summary report
     summary = {
@@ -788,6 +870,7 @@ async def main():
         "total_tickers": len(tickers),
         "successful_collections": successful,
         "failed_collections": failed,
+        "filtered_collections": filtered,
         "success_rate": (successful / len(tickers)) * 100 if tickers else 0,
         "data_source": "polygon.io",
         "years_collected": 5,
@@ -800,5 +883,27 @@ async def main():
 
     logger.info(f"Collection summary saved to: {summary_path}")
 
+    # Save filtered tickers to separate file
+    if filtered_tickers:
+        filtered_summary = {
+            "filter_date": datetime.now().isoformat(),
+            "filter_reason": "Market cap below $2B threshold",
+            "total_filtered": len(filtered_tickers),
+            "filtered_tickers": sorted(filtered_tickers)
+        }
+
+        filtered_path = Path("/workspaces/data/raw_data/polygon") / "filtered_tickers.json"
+        with open(filtered_path, 'w') as f:
+            json.dump(filtered_summary, f, indent=2)
+
+        logger.info(f"Filtered tickers list saved to: {filtered_path}")
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Collect historical data from Polygon.io with technical indicators and fundamentals')
+    parser.add_argument('start_date', nargs='?', help='Start date (YYYY-MM-DD format)', default=None)
+    parser.add_argument('end_date', nargs='?', help='End date (YYYY-MM-DD format)', default=None)
+    args = parser.parse_args()
+
+    asyncio.run(main(start_date=args.start_date, end_date=args.end_date))

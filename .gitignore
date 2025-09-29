@@ -71,3 +71,12 @@ redis-data/
 *.tmp
 *.temp
 .tmp/
+
+# Analysis logs and temporary files
+/tmp/claude/
+*.stdout
+*.stderr
+
+# Keep key documentation but exclude large detailed logs
+/data/error_records/*/detailed_errors_*.json
+/data/error_records/*/complete_investigation_*.json

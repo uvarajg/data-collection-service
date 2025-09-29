@@ -160,6 +160,8 @@ data-collection-service/
 
 **Documentation**: See [docs/polygon/POLYGON_SETUP.md](docs/polygon/POLYGON_SETUP.md) for complete setup guide.
 
+**Validation**: For validating Polygon.io collected data, see the [Data Validation Service](../data-validation-service) - `scripts/polygon/validate_polygon_historical.py`
+
 ## 📊 Performance Metrics
 
 | Metric | Target | Current | Status |

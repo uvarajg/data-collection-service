@@ -15,7 +15,7 @@ sys.path.append('/workspaces/data-collection-service')
 
 from src.services.data_collector import DataCollectionCoordinator
 
-async def run_collection(date_input=None):
+async def run_collection(date_input=None, automated=False):
     """Run data collection with date input (interactive or command line)"""
 
     print("\n" + "="*60)
@@ -75,11 +75,14 @@ async def run_collection(date_input=None):
     print(f"   📊 Days:       {days_count} day(s)")
     print("-"*60)
 
-    confirm = input("\nProceed with collection? (y/n): ").strip().lower()
+    if automated:
+        print("🤖 Running in automated mode - proceeding without confirmation")
+    else:
+        confirm = input("\nProceed with collection? (y/n): ").strip().lower()
 
-    if confirm != 'y':
-        print("❌ Collection cancelled by user")
-        return
+        if confirm != 'y':
+            print("❌ Collection cancelled by user")
+            return
 
     print("\n" + "="*60)
     print(f"🚀 STARTING DATA COLLECTION")
@@ -256,12 +259,19 @@ def main():
 
     # Check for command line arguments
     date_input = None
+    automated = False
+
     if len(sys.argv) >= 3 and sys.argv[1] == '--date':
         date_input = sys.argv[2]
         print(f"📅 Command line date provided: {date_input}")
 
+    # Check for automated flag
+    if '--automated' in sys.argv:
+        automated = True
+        print("🤖 Automated mode enabled")
+
     # Run async collection
-    asyncio.run(run_collection(date_input))
+    asyncio.run(run_collection(date_input, automated))
 
 
 if __name__ == "__main__":

@@ -50,7 +50,8 @@ class DailyPipelineRunner:
 
     def load_environment(self):
         """Load environment variables from .env file"""
-        env_path = Path(__file__).parent / '.env'
+        # Look for .env in the root directory of data-collection-service
+        env_path = Path('/workspaces/data-collection-service/.env')
         if env_path.exists():
             with open(env_path, 'r') as f:
                 for line in f:
@@ -93,7 +94,7 @@ class DailyPipelineRunner:
             # Run the input data refresh
             result = subprocess.run([
                 'python', 'scripts/main/collect_us_market_stocks.py'
-            ], capture_output=True, text=True, timeout=600)  # 10 minute timeout
+            ], capture_output=True, text=True)  # No timeout - let it run to completion
 
             duration = time.time() - start_time
 
@@ -219,8 +220,8 @@ class DailyPipelineRunner:
 
             # Run the automated collection script
             result = subprocess.run([
-                'python', 'scripts/main/run_data_collection_with_dates.py', '--date', self.target_date
-            ], capture_output=True, text=True, timeout=3600)  # 60 minute timeout
+                'python', 'scripts/main/run_data_collection_with_dates.py', '--date', self.target_date, '--automated'
+            ], capture_output=True, text=True)  # No timeout - let it run to completion
 
             duration = time.time() - start_time
 
@@ -417,7 +418,7 @@ if __name__ == "__main__":
             # Run validation
             result = subprocess.run([
                 'python', script_path
-            ], capture_output=True, text=True, timeout=300)  # 5 minute timeout
+            ], capture_output=True, text=True)  # No timeout - let it run to completion
 
             duration = time.time() - start_time
 

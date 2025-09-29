@@ -85,9 +85,34 @@ For complete setup and usage instructions, see:
 
 ## 🧪 Testing
 
+### Collection Testing
 Test scripts available:
 - `test_polygon_collection.py`: Limited test with 5 tickers
 - `test_legacy_financials.py`: Test financial data endpoints
+
+### Data Validation
+For validating collected Polygon.io data, see the **Data Validation Service**:
+
+**Location**: `/workspaces/data-validation-service/scripts/polygon/validate_polygon_historical.py`
+
+**Usage:**
+```bash
+# From validation service directory
+cd /workspaces/data-validation-service
+
+# Validate single day
+python scripts/polygon/validate_polygon_historical.py --date 2025-09-05
+
+# Validate date range
+python scripts/polygon/validate_polygon_historical.py --start-date 2025-09-01 --end-date 2025-09-14
+```
+
+**Validation includes:**
+- ✅ OHLCV data completeness and consistency
+- ✅ Technical indicators (13 indicators)
+- ✅ Fundamental data (10 metrics)
+- ✅ Quality scoring with A+ to F grades
+- ✅ Detailed error reporting
 
 ## 📈 Integration
 
